@@ -1,6 +1,6 @@
 ---
 name: lark-auto-oauth
-description: Automated OAuth authentication for lark-cli. Use when the user asks to authenticate with Lark, login to Lark, or verify user credentials. Supports both Device Flow and Authorization Code Flow with automatic user verification.
+description: Automated OAuth authentication for lark-cli. Use when the user asks to authenticate with Lark, login to Lark, or verify user credentials. Uses Authorization Code Flow by default with automatic browser-based authentication.
 ---
 
 # Lark Auto OAuth
@@ -10,8 +10,8 @@ Automated OAuth authentication using lark-cli built-in commands.
 ## Quick Authentication
 
 ```bash
-# One-command authentication with recommended scopes
-lark-cli auth login --recommend
+# One-command authentication (Authorization Code Flow)
+lark-cli auth login-code
 
 # Verify authentication
 lark-cli auth status --verify
@@ -26,35 +26,21 @@ lark-cli auth status
 # 2. If not configured, initialize
 lark-cli config init
 
-# 3. Login (choose one method)
-lark-cli auth login --recommend              # Device Flow (recommended)
-lark-cli auth login-code                     # Authorization Code Flow
+# 3. Login (Authorization Code Flow - default)
+lark-cli auth login-code
 
 # 4. Verify user info
 lark-cli auth status --verify
 ```
 
-## Authentication Methods
+## Authentication Method
 
-### Device Flow (Recommended)
-
-```bash
-lark-cli auth login --recommend
-```
-
-- Interactive TUI for scope selection
-- Works with standard Lark domains
-- Auto-selects commonly used scopes
-
-### Authorization Code Flow
-
-```bash
-lark-cli auth login-code
-```
+Authorization Code Flow (default):
 
 - Browser-based OAuth
 - Supports custom domains
 - Local callback server (default: http://localhost:3000/callback)
+- Auto-opens browser for authentication
 
 **Custom options:**
 
