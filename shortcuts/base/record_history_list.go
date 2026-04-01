@@ -14,7 +14,7 @@ var BaseRecordHistoryList = common.Shortcut{
 	Command:     "+record-history-list",
 	Description: "List record change history",
 	Risk:        "read",
-	Scopes:      []string{"base:history:read"},
+	Scopes:      []string{"base:record:read"},
 	AuthTypes:   authTypes(),
 	Flags: []common.Flag{
 		baseTokenFlag(true),

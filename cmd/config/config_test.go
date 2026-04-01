@@ -5,6 +5,8 @@ package config
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +23,7 @@ func TestConfigInitCmd_FlagParsing(t *testing.T) {
 		gotOpts = opts
 		return nil
 	})
-	cmd.SetArgs([]string{"--app-id", "cli_test", "--app-secret-stdin", "--brand", "lark"})
+	cmd.SetArgs([]string{"--app-id", "cli_test", "--app-secret-stdin", "--brand", "lark", "--domain", "https://open.example.com/"})
 	err := cmd.Execute()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -34,6 +36,9 @@ func TestConfigInitCmd_FlagParsing(t *testing.T) {
 	}
 	if gotOpts.Brand != "lark" {
 		t.Errorf("expected Brand lark, got %s", gotOpts.Brand)
+	}
+	if gotOpts.Domain != "https://open.example.com/" {
+		t.Errorf("expected Domain to be forwarded, got %s", gotOpts.Domain)
 	}
 }
 
@@ -135,6 +140,62 @@ func TestConfigInitRun_NonTerminal_NoFlags_RejectsWithHint(t *testing.T) {
 	}
 	if !strings.Contains(msg, "terminal") {
 		t.Errorf("expected error to mention terminal, got: %s", msg)
+	}
+}
+
+func TestConfigInitRun_NonInteractive_SavesNormalizedDomain(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, nil)
+	f.IOStreams.In = strings.NewReader("secret123\n")
+
+	configDir := t.TempDir()
+	t.Setenv("LARKSUITE_CLI_CONFIG_DIR", configDir)
+
+	opts := &ConfigInitOptions{
+		Factory:        f,
+		Ctx:            context.Background(),
+		AppID:          "cli_test",
+		AppSecretStdin: true,
+		Brand:          "lark",
+		Domain:         "https://open.example.com/",
+		Lang:           "en",
+	}
+	if err := configInitRun(opts); err != nil {
+		t.Fatalf("configInitRun() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(configDir, "config.json"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(data), "\"domain\": \"https://open.example.com\"") {
+		t.Fatalf("expected normalized domain in config, got %s", string(data))
+	}
+
+	cfg, err := core.RequireConfig(f.Keychain)
+	if err != nil {
+		t.Fatalf("RequireConfig() error = %v", err)
+	}
+	if cfg.Brand != core.LarkBrand("https://open.example.com") {
+		t.Fatalf("Brand = %q, want custom domain", cfg.Brand)
+	}
+}
+
+func TestConfigInitRun_NewWithDomain_Rejects(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, nil)
+	opts := &ConfigInitOptions{
+		Factory: f,
+		Ctx:     context.Background(),
+		New:     true,
+		Domain:  "https://open.example.com",
+		Lang:    "zh",
+	}
+
+	err := configInitRun(opts)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--domain is only supported when configuring an existing app") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

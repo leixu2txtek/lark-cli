@@ -22,14 +22,12 @@ import (
 
 const regRootPath = `Software\LarkCli\keychain`
 
-// registryPathForService returns the registry path for a given service.
 func registryPathForService(service string) string {
 	return regRootPath + `\` + safeRegistryComponent(service)
 }
 
 var safeRegRe = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
-// safeRegistryComponent sanitizes a string to be used as a registry key component.
 func safeRegistryComponent(s string) string {
 	// Registry key path uses '\\' separators; avoid accidental nesting and odd chars.
 	s = strings.ReplaceAll(s, "\\", "_")
@@ -41,7 +39,6 @@ func valueNameForAccount(account string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(account))
 }
 
-// dpapiEntropy generates entropy for DPAPI encryption based on the service and account names.
 func dpapiEntropy(service, account string) *windows.DataBlob {
 	// Bind ciphertext to (service, account) to reduce swap/replay risks.
 	// Note: empty entropy is allowed, but we intentionally use deterministic entropy.
@@ -52,7 +49,6 @@ func dpapiEntropy(service, account string) *windows.DataBlob {
 	return &windows.DataBlob{Size: uint32(len(data)), Data: &data[0]}
 }
 
-// dpapiProtect encrypts data using Windows DPAPI.
 func dpapiProtect(plaintext []byte, entropy *windows.DataBlob) ([]byte, error) {
 	var in windows.DataBlob
 	if len(plaintext) > 0 {
@@ -74,7 +70,6 @@ func dpapiProtect(plaintext []byte, entropy *windows.DataBlob) ([]byte, error) {
 	return res, nil
 }
 
-// dpapiUnprotect decrypts data using Windows DPAPI.
 func dpapiUnprotect(ciphertext []byte, entropy *windows.DataBlob) ([]byte, error) {
 	var in windows.DataBlob
 	if len(ciphertext) > 0 {
@@ -96,7 +91,6 @@ func dpapiUnprotect(ciphertext []byte, entropy *windows.DataBlob) ([]byte, error
 	return res, nil
 }
 
-// freeDataBlob frees the memory allocated for a DataBlob.
 func freeDataBlob(b *windows.DataBlob) {
 	if b == nil || b.Data == nil {
 		return
@@ -107,16 +101,11 @@ func freeDataBlob(b *windows.DataBlob) {
 	b.Size = 0
 }
 
-// platformGet retrieves a value from the Windows registry.
-func platformGet(service, account string) (string, error) {
-	v, ok := registryGet(service, account)
-	if !ok {
-		return "", nil
-	}
-	return v, nil
+func platformGet(service, account string) string {
+	v, _ := registryGet(service, account)
+	return v
 }
 
-// platformSet stores a value in the Windows registry.
 func platformSet(service, account, data string) error {
 	entropy := dpapiEntropy(service, account)
 	protected, err := dpapiProtect([]byte(data), entropy)
@@ -126,12 +115,10 @@ func platformSet(service, account, data string) error {
 	return registrySet(service, account, protected)
 }
 
-// platformRemove deletes a value from the Windows registry.
 func platformRemove(service, account string) error {
 	return registryRemove(service, account)
 }
 
-// registryGet retrieves a string value from the registry under the given service and account.
 func registryGet(service, account string) (string, bool) {
 	keyPath := registryPathForService(service)
 	k, err := registry.OpenKey(registry.CURRENT_USER, keyPath, registry.QUERY_VALUE)
@@ -156,7 +143,6 @@ func registryGet(service, account string) (string, bool) {
 	return string(plain), true
 }
 
-// registrySet stores a string value in the registry under the given service and account.
 func registrySet(service, account string, protected []byte) error {
 	keyPath := registryPathForService(service)
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.SET_VALUE)
@@ -172,7 +158,6 @@ func registrySet(service, account string, protected []byte) error {
 	return nil
 }
 
-// registryRemove deletes a value from the registry under the given service and account.
 func registryRemove(service, account string) error {
 	keyPath := registryPathForService(service)
 	k, err := registry.OpenKey(registry.CURRENT_USER, keyPath, registry.SET_VALUE)

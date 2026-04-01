@@ -5,13 +5,11 @@ package core
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/larksuite/cli/internal/keychain"
-	"github.com/larksuite/cli/internal/output"
 	"github.com/larksuite/cli/internal/validate"
 )
 
@@ -37,6 +35,7 @@ type AppConfig struct {
 	AppId     string      `json:"appId"`
 	AppSecret SecretInput `json:"appSecret"`
 	Brand     LarkBrand   `json:"brand"`
+	Domain    string      `json:"domain,omitempty"`    // Custom domain for private deployments (e.g., "https://open.example.com")
 	Lang      string      `json:"lang,omitempty"`
 	DefaultAs string      `json:"defaultAs,omitempty"` // "user" | "bot" | "auto"
 	Users     []AppUser   `json:"users"`
@@ -115,18 +114,19 @@ func RequireConfig(kc keychain.KeychainAccess) (*CliConfig, error) {
 	app := raw.Apps[0]
 	secret, err := ResolveSecretInput(app.AppSecret, kc)
 	if err != nil {
-		// If the error comes from the keychain, it will already be wrapped as an ExitError.
-		// For other errors (e.g. file read errors, unknown sources), wrap them as ConfigError.
-		var exitErr *output.ExitError
-		if errors.As(err, &exitErr) {
-			return nil, exitErr
-		}
 		return nil, &ConfigError{Code: 2, Type: "config", Message: err.Error()}
 	}
+	
+	// Use Domain if specified, otherwise use Brand
+	brand := app.Brand
+	if app.Domain != "" {
+		brand = LarkBrand(app.Domain)
+	}
+	
 	cfg := &CliConfig{
 		AppID:     app.AppId,
 		AppSecret: secret,
-		Brand:     app.Brand,
+		Brand:     brand,
 		DefaultAs: app.DefaultAs,
 	}
 	if len(app.Users) > 0 {

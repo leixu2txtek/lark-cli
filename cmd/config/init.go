@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -27,6 +28,7 @@ type ConfigInitOptions struct {
 	appSecret      string // internal only; populated from stdin, never from a CLI flag
 	AppSecretStdin bool   // read app-secret from stdin (avoids process list exposure)
 	Brand          string
+	Domain         string // Custom domain for private deployments
 	New            bool
 	Lang           string
 	langExplicit   bool // true when --lang was explicitly passed
@@ -58,6 +60,7 @@ verification URL from its output.`,
 	cmd.Flags().StringVar(&opts.AppID, "app-id", "", "App ID (non-interactive)")
 	cmd.Flags().BoolVar(&opts.AppSecretStdin, "app-secret-stdin", false, "Read App Secret from stdin to avoid process list exposure")
 	cmd.Flags().StringVar(&opts.Brand, "brand", "feishu", "feishu or lark (non-interactive, default feishu)")
+	cmd.Flags().StringVar(&opts.Domain, "domain", "", "Custom domain for private deployments (e.g., https://open.example.com)")
 	cmd.Flags().StringVar(&opts.Lang, "lang", "zh", "language for interactive prompts (zh or en)")
 
 	return cmd
@@ -85,24 +88,48 @@ func cleanupOldConfig(existing *core.MultiAppConfig, f *cmdutil.Factory, skipApp
 }
 
 // saveAsOnlyApp overwrites config.json with a single-app config.
-func saveAsOnlyApp(appId string, secret core.SecretInput, brand core.LarkBrand, lang string) error {
+func saveAsOnlyApp(appId string, secret core.SecretInput, brand core.LarkBrand, domain string, lang string) error {
 	config := &core.MultiAppConfig{
 		Apps: []core.AppConfig{{
-			AppId: appId, AppSecret: secret, Brand: brand, Lang: lang, Users: []core.AppUser{},
+			AppId: appId, AppSecret: secret, Brand: brand, Domain: domain, Lang: lang, Users: []core.AppUser{},
 		}},
 	}
 	return core.SaveMultiAppConfig(config)
 }
 
+func normalizeDomain(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", output.ErrValidation("invalid domain %q: expected an absolute http(s) URL", value)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", output.ErrValidation("invalid domain %q: expected an http(s) URL", value)
+	}
+	return strings.TrimRight(trimmed, "/"), nil
+}
+
 func configInitRun(opts *ConfigInitOptions) error {
 	f := opts.Factory
+
+	normalizedDomain, err := normalizeDomain(opts.Domain)
+	if err != nil {
+		return err
+	}
+	opts.Domain = normalizedDomain
+	if opts.New && opts.Domain != "" {
+		return output.ErrValidation("--domain is only supported when configuring an existing app")
+	}
 
 	// Read secret from stdin if --app-secret-stdin is set
 	if opts.AppSecretStdin {
 		scanner := bufio.NewScanner(f.IOStreams.In)
 		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return output.ErrValidation("failed to read secret from stdin: %v", err)
+			if scanErr := scanner.Err(); scanErr != nil {
+				return output.ErrValidation("failed to read secret from stdin: %v", scanErr)
 			}
 			return output.ErrValidation("stdin is empty, expected app secret")
 		}
@@ -125,11 +152,11 @@ func configInitRun(opts *ConfigInitOptions) error {
 			return output.Errorf(output.ExitInternal, "internal", "%v", err)
 		}
 		cleanupOldConfig(existing, f, opts.AppID)
-		if err := saveAsOnlyApp(opts.AppID, secret, brand, opts.Lang); err != nil {
+		if err := saveAsOnlyApp(opts.AppID, secret, brand, opts.Domain, opts.Lang); err != nil {
 			return output.Errorf(output.ExitInternal, "internal", "failed to save config: %v", err)
 		}
 		output.PrintSuccess(f.IOStreams.ErrOut, fmt.Sprintf("Configuration saved to %s", core.GetConfigPath()))
-		output.PrintJson(f.IOStreams.Out, map[string]interface{}{"appId": opts.AppID, "appSecret": "****", "brand": brand})
+		output.PrintJson(f.IOStreams.Out, map[string]interface{}{"appId": opts.AppID, "appSecret": "****", "brand": brand, "domain": opts.Domain})
 		return nil
 	}
 
@@ -166,7 +193,7 @@ func configInitRun(opts *ConfigInitOptions) error {
 			return output.Errorf(output.ExitInternal, "internal", "%v", err)
 		}
 		cleanupOldConfig(existing, f, result.AppID)
-		if err := saveAsOnlyApp(result.AppID, secret, result.Brand, opts.Lang); err != nil {
+		if err := saveAsOnlyApp(result.AppID, secret, result.Brand, "", opts.Lang); err != nil {
 			return output.Errorf(output.ExitInternal, "internal", "failed to save config: %v", err)
 		}
 		output.PrintJson(f.IOStreams.Out, map[string]interface{}{"appId": result.AppID, "appSecret": "****", "brand": result.Brand})
@@ -175,7 +202,7 @@ func configInitRun(opts *ConfigInitOptions) error {
 
 	// Mode 4: Interactive TUI (terminal)
 	if !opts.hasAnyNonInteractiveFlag() && f.IOStreams.IsTerminal {
-		result, err := runInteractiveConfigInit(opts.Ctx, f, msg)
+		result, err := runInteractiveConfigInit(opts.Ctx, f, opts, msg)
 		if err != nil {
 			return err
 		}
@@ -192,7 +219,7 @@ func configInitRun(opts *ConfigInitOptions) error {
 				return output.Errorf(output.ExitInternal, "internal", "%v", err)
 			}
 			cleanupOldConfig(existing, f, result.AppID)
-			if err := saveAsOnlyApp(result.AppID, secret, result.Brand, opts.Lang); err != nil {
+			if err := saveAsOnlyApp(result.AppID, secret, result.Brand, result.Domain, opts.Lang); err != nil {
 				return output.Errorf(output.ExitInternal, "internal", "failed to save config: %v", err)
 			}
 		} else if result.Mode == "existing" && result.AppID != "" {
@@ -200,6 +227,7 @@ func configInitRun(opts *ConfigInitOptions) error {
 			if existing != nil && len(existing.Apps) > 0 {
 				existing.Apps[0].AppId = result.AppID
 				existing.Apps[0].Brand = result.Brand
+				existing.Apps[0].Domain = result.Domain
 				existing.Apps[0].Lang = opts.Lang
 				if err := core.SaveMultiAppConfig(existing); err != nil {
 					return output.Errorf(output.ExitInternal, "internal", "failed to save config: %v", err)
@@ -287,6 +315,10 @@ func configInitRun(opts *ConfigInitOptions) error {
 	if resolvedBrand == "" {
 		resolvedBrand = "feishu"
 	}
+	resolvedDomain := opts.Domain
+	if resolvedDomain == "" && firstApp != nil {
+		resolvedDomain = firstApp.Domain
+	}
 
 	if resolvedAppId == "" || resolvedSecret.IsZero() {
 		return output.ErrValidation("App ID and App Secret cannot be empty")
@@ -297,7 +329,7 @@ func configInitRun(opts *ConfigInitOptions) error {
 		return output.Errorf(output.ExitInternal, "internal", "%v", err)
 	}
 	cleanupOldConfig(existing, f, resolvedAppId)
-	if err := saveAsOnlyApp(resolvedAppId, storedSecret, parseBrand(resolvedBrand), opts.Lang); err != nil {
+	if err := saveAsOnlyApp(resolvedAppId, storedSecret, parseBrand(resolvedBrand), resolvedDomain, opts.Lang); err != nil {
 		return output.Errorf(output.ExitInternal, "internal", "failed to save config: %v", err)
 	}
 	output.PrintSuccess(f.IOStreams.ErrOut, fmt.Sprintf("Configuration saved to %s", core.GetConfigPath()))

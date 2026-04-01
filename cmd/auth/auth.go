@@ -26,7 +26,9 @@ func NewCmdAuth(f *cmdutil.Factory) *cobra.Command {
 	cmdutil.DisableAuthCheck(cmd)
 
 	cmd.AddCommand(NewCmdAuthLogin(f, nil))
+	cmd.AddCommand(NewCmdAuthLoginCode(f, nil))
 	cmd.AddCommand(NewCmdAuthLogout(f, nil))
+	cmd.AddCommand(NewCmdAuthStoreToken(f, nil))
 	cmd.AddCommand(NewCmdAuthStatus(f, nil))
 	cmd.AddCommand(NewCmdAuthScopes(f, nil))
 	cmd.AddCommand(NewCmdAuthList(f, nil))

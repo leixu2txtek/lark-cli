@@ -11,7 +11,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,14 +36,11 @@ func StorageDir(service string) string {
 
 var safeFileNameRe = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
-// safeFileName sanitizes an account name to be used as a safe file name.
 func safeFileName(account string) string {
 	return safeFileNameRe.ReplaceAllString(account, "_") + ".enc"
 }
 
-// getMasterKey retrieves the master key from the system keychain.
-// If allowCreate is true, it generates and stores a new master key if one doesn't exist.
-func getMasterKey(service string, allowCreate bool) ([]byte, error) {
+func getMasterKey(service string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), keychainTimeout)
 	defer cancel()
 
@@ -63,48 +59,28 @@ func getMasterKey(service string, allowCreate bool) ([]byte, error) {
 				resCh <- result{key: key, err: nil}
 				return
 			}
-			// Key is found but invalid or corrupted
-			resCh <- result{key: nil, err: errors.New("keychain is corrupted")}
-			return
-		} else if !errors.Is(err, keyring.ErrNotFound) {
-			// Not ErrNotFound, which means access was denied or blocked by the system
-			resCh <- result{key: nil, err: errors.New("keychain access blocked")}
-			return
 		}
 
-		// If ErrNotFound, check if we are allowed to create a new key
-		if !allowCreate {
-			// Creation not allowed (e.g., during Get operation), return error
-			resCh <- result{key: nil, err: errNotInitialized}
-			return
-		}
-
-		// It's the first time and creation is allowed (Set operation), generate a new key
+		// Generate new master key if not found or invalid
 		key := make([]byte, masterKeyBytes)
 		if _, randErr := rand.Read(key); randErr != nil {
 			resCh <- result{key: nil, err: randErr}
 			return
 		}
 
-		encodedKeyStr := base64.StdEncoding.EncodeToString(key)
-		setErr := keyring.Set(service, "master.key", encodedKeyStr)
-		if setErr != nil {
-			resCh <- result{key: nil, err: setErr}
-			return
-		}
-		resCh <- result{key: key, err: nil}
+		encodedKey = base64.StdEncoding.EncodeToString(key)
+		setErr := keyring.Set(service, "master.key", encodedKey)
+		resCh <- result{key: key, err: setErr}
 	}()
 
 	select {
 	case res := <-resCh:
 		return res.key, res.err
 	case <-ctx.Done():
-		// Timeout is usually caused by ignored/blocked permission prompts
-		return nil, errors.New("keychain access blocked")
+		return nil, ctx.Err()
 	}
 }
 
-// encryptData encrypts data using AES-GCM.
 func encryptData(plaintext string, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -127,7 +103,6 @@ func encryptData(plaintext string, key []byte) ([]byte, error) {
 	return result, nil
 }
 
-// decryptData decrypts data using AES-GCM.
 func decryptData(data []byte, key []byte) (string, error) {
 	if len(data) < ivBytes+tagBytes {
 		return "", os.ErrInvalid
@@ -150,30 +125,24 @@ func decryptData(data []byte, key []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// platformGet retrieves a value from the macOS keychain.
-func platformGet(service, account string) (string, error) {
-	path := filepath.Join(StorageDir(service), safeFileName(account))
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
+func platformGet(service, account string) string {
+	key, err := getMasterKey(service)
 	if err != nil {
-		return "", err
+		return ""
 	}
-	key, err := getMasterKey(service, false)
+	data, err := os.ReadFile(filepath.Join(StorageDir(service), safeFileName(account)))
 	if err != nil {
-		return "", err
+		return ""
 	}
 	plaintext, err := decryptData(data, key)
 	if err != nil {
-		return "", err
+		return ""
 	}
-	return plaintext, nil
+	return plaintext
 }
 
-// platformSet stores a value in the macOS keychain.
 func platformSet(service, account, data string) error {
-	key, err := getMasterKey(service, true)
+	key, err := getMasterKey(service)
 	if err != nil {
 		return err
 	}
@@ -201,7 +170,6 @@ func platformSet(service, account, data string) error {
 	return nil
 }
 
-// platformRemove deletes a value from the macOS keychain.
 func platformRemove(service, account string) error {
 	err := os.Remove(filepath.Join(StorageDir(service), safeFileName(account)))
 	if err != nil && !os.IsNotExist(err) {

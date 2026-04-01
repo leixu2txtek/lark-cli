@@ -38,6 +38,19 @@ func TestResolveEndpoints_EmptyDefaultsToFeishu(t *testing.T) {
 	}
 }
 
+func TestResolveEndpoints_CustomDomain(t *testing.T) {
+	ep := ResolveEndpoints("https://open.example.com/")
+	if ep.Open != "https://open.example.com" {
+		t.Errorf("Open = %q, want normalized custom domain", ep.Open)
+	}
+	if ep.Accounts != "https://open.example.com" {
+		t.Errorf("Accounts = %q, want normalized custom domain", ep.Accounts)
+	}
+	if ep.MCP != "https://open.example.com" {
+		t.Errorf("MCP = %q, want normalized custom domain", ep.MCP)
+	}
+}
+
 func TestResolveOpenBaseURL(t *testing.T) {
 	if got := ResolveOpenBaseURL(BrandFeishu); got != "https://open.feishu.cn" {
 		t.Errorf("ResolveOpenBaseURL(feishu) = %q", got)

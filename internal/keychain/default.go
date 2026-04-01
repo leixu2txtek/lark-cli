@@ -3,12 +3,17 @@
 
 package keychain
 
-// defaultKeychain is the default implementation of KeychainAccess
-// that uses the package-level functions.
+import "fmt"
+
+// defaultKeychain implements KeychainAccess using the real platform keychain.
 type defaultKeychain struct{}
 
 func (d *defaultKeychain) Get(service, account string) (string, error) {
-	return Get(service, account)
+	val := Get(service, account)
+	if val == "" {
+		return "", fmt.Errorf("keychain entry not found: %s/%s", service, account)
+	}
+	return val, nil
 }
 
 func (d *defaultKeychain) Set(service, account, value string) error {

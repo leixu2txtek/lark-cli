@@ -22,12 +22,13 @@ import (
 type configInitResult struct {
 	Mode      string // "create" or "existing"
 	Brand     core.LarkBrand
+	Domain    string
 	AppID     string
 	AppSecret string
 }
 
 // runInteractiveConfigInit shows an interactive TUI for config init.
-func runInteractiveConfigInit(ctx context.Context, f *cmdutil.Factory, msg *initMsg) (*configInitResult, error) {
+func runInteractiveConfigInit(ctx context.Context, f *cmdutil.Factory, opts *ConfigInitOptions, msg *initMsg) (*configInitResult, error) {
 	// Phase 1: Choose mode
 	var mode string
 	form1 := huh.NewForm(
@@ -50,14 +51,17 @@ func runInteractiveConfigInit(ctx context.Context, f *cmdutil.Factory, msg *init
 	}
 
 	if mode == "existing" {
-		return runExistingAppForm(f, msg)
+		return runExistingAppForm(f, msg, opts)
+	}
+	if opts != nil && opts.Domain != "" {
+		return nil, output.ErrValidation("--domain is only supported when configuring an existing app")
 	}
 
 	return runCreateAppFlow(ctx, f, "", msg)
 }
 
 // runExistingAppForm shows a huh form for manually entering App ID / App Secret / Brand.
-func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, error) {
+func runExistingAppForm(f *cmdutil.Factory, msg *initMsg, opts *ConfigInitOptions) (*configInitResult, error) {
 	// Load existing config for defaults
 	existing, _ := core.LoadMultiAppConfig()
 	var firstApp *core.AppConfig
@@ -65,7 +69,7 @@ func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, er
 		firstApp = &existing.Apps[0]
 	}
 
-	var appID, appSecret, brand string
+	var appID, appSecret, brand, domain string
 
 	appIDInput := huh.NewInput().
 		Title("App ID").
@@ -87,8 +91,16 @@ func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, er
 	}
 
 	brand = "feishu"
-	if firstApp != nil && firstApp.Brand != "" {
+	if opts != nil && opts.Brand != "" {
+		brand = opts.Brand
+	} else if firstApp != nil && firstApp.Brand != "" {
 		brand = string(firstApp.Brand)
+	}
+	if firstApp != nil && firstApp.Domain != "" {
+		domain = firstApp.Domain
+	}
+	if opts != nil && opts.Domain != "" {
+		domain = opts.Domain
 	}
 
 	form := huh.NewForm(
@@ -102,6 +114,11 @@ func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, er
 					huh.NewOption("Lark", "lark"),
 				).
 				Value(&brand),
+			huh.NewInput().
+				Title("Custom Domain (optional)").
+				Description("Use for private deployments, for example https://open.example.com").
+				Placeholder("https://open.example.com").
+				Value(&domain),
 		),
 	).WithTheme(cmdutil.ThemeFeishu())
 
@@ -109,6 +126,10 @@ func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, er
 		if err == huh.ErrUserAborted {
 			return nil, output.ErrBare(1)
 		}
+		return nil, err
+	}
+	normalizedDomain, err := normalizeDomain(domain)
+	if err != nil {
 		return nil, err
 	}
 
@@ -119,9 +140,10 @@ func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, er
 	if appSecret == "" && firstApp != nil && !firstApp.AppSecret.IsZero() {
 		// Keep existing secret - caller will handle
 		return &configInitResult{
-			Mode:  "existing",
-			Brand: parseBrand(brand),
-			AppID: appID,
+			Mode:   "existing",
+			Brand:  parseBrand(brand),
+			Domain: normalizedDomain,
+			AppID:  appID,
 		}, nil
 	}
 
@@ -132,6 +154,7 @@ func runExistingAppForm(f *cmdutil.Factory, msg *initMsg) (*configInitResult, er
 	return &configInitResult{
 		Mode:      "existing",
 		Brand:     parseBrand(brand),
+		Domain:    normalizedDomain,
 		AppID:     appID,
 		AppSecret: appSecret,
 	}, nil

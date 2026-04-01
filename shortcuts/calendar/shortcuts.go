@@ -11,7 +11,6 @@ func Shortcuts() []common.Shortcut {
 		CalendarAgenda,
 		CalendarCreate,
 		CalendarFreebusy,
-		CalendarRsvp,
 		CalendarSuggestion,
 	}
 }

@@ -418,7 +418,7 @@ func (ctx *RuntimeContext) IO() *cmdutil.IOStreams {
 
 // Out prints a success JSON envelope to stdout.
 func (ctx *RuntimeContext) Out(data interface{}, meta *output.Meta) {
-	env := output.Envelope{OK: true, Identity: string(ctx.As()), Data: data, Meta: meta, Notice: output.GetNotice()}
+	env := output.Envelope{OK: true, Identity: string(ctx.As()), Data: data, Meta: meta}
 	b, _ := json.MarshalIndent(env, "", "  ")
 	fmt.Fprintln(ctx.IO().Out, string(b))
 }

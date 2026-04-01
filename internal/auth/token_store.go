@@ -39,8 +39,8 @@ func MaskToken(token string) string {
 
 // GetStoredToken reads the stored UAT for a given (appId, userOpenId) pair.
 func GetStoredToken(appId, userOpenId string) *StoredUAToken {
-	jsonStr, err := keychain.Get(keychain.LarkCliService, accountKey(appId, userOpenId))
-	if err != nil || jsonStr == "" {
+	jsonStr := keychain.Get(keychain.LarkCliService, accountKey(appId, userOpenId))
+	if jsonStr == "" {
 		return nil
 	}
 	var token StoredUAToken

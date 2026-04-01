@@ -30,3 +30,4 @@ test_scripts/
 tests/mail/reports/
 
 /log/
+/__pycache__/

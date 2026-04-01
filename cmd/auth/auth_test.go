@@ -133,6 +133,98 @@ func TestAuthStatusCmd_VerifyFlag(t *testing.T) {
 	}
 }
 
+func TestAuthStoreTokenCmd_FlagParsing(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, &core.CliConfig{
+		AppID: "test-app", AppSecret: "test-secret", Brand: core.BrandFeishu,
+	})
+
+	var gotOpts *StoreTokenOptions
+	cmd := NewCmdAuthStoreToken(f, func(opts *StoreTokenOptions) error {
+		gotOpts = opts
+		return nil
+	})
+	cmd.SetArgs([]string{
+		"--user-id", "ou_test",
+		"--user-name", "Test User",
+		"--access-token", "uat_xxx",
+		"--refresh-token", "rt_xxx",
+		"--expires-in", "7200",
+		"--refresh-expires-in", "604800",
+		"--scope", "im:message:readonly",
+	})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOpts == nil {
+		t.Fatal("expected opts to be set")
+	}
+	if gotOpts.UserOpenID != "ou_test" {
+		t.Errorf("expected UserOpenID ou_test, got %s", gotOpts.UserOpenID)
+	}
+	if gotOpts.UserName != "Test User" {
+		t.Errorf("expected UserName Test User, got %s", gotOpts.UserName)
+	}
+	if gotOpts.ExpiresIn != 7200 {
+		t.Errorf("expected ExpiresIn 7200, got %d", gotOpts.ExpiresIn)
+	}
+	if gotOpts.RefreshExpiresIn != 604800 {
+		t.Errorf("expected RefreshExpiresIn 604800, got %d", gotOpts.RefreshExpiresIn)
+	}
+}
+
+func TestAuthStoreTokenCmd_UserOpenIDAlias(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, &core.CliConfig{
+		AppID: "test-app", AppSecret: "test-secret", Brand: core.BrandFeishu,
+	})
+
+	var gotOpts *StoreTokenOptions
+	cmd := NewCmdAuthStoreToken(f, func(opts *StoreTokenOptions) error {
+		gotOpts = opts
+		return nil
+	})
+	cmd.SetArgs([]string{
+		"--user-open-id", "ou_alias",
+		"--user-name", "Alias User",
+		"--access-token", "uat_xxx",
+		"--refresh-token", "rt_xxx",
+		"--expires-in", "7200",
+		"--refresh-expires-in", "604800",
+	})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOpts == nil {
+		t.Fatal("expected opts to be set")
+	}
+	if gotOpts.UserOpenID != "ou_alias" {
+		t.Errorf("expected UserOpenID ou_alias, got %s", gotOpts.UserOpenID)
+	}
+}
+
+func TestAuthStoreTokenRun_RejectsNonPositiveTTL(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, &core.CliConfig{
+		AppID: "test-app", AppSecret: "test-secret", Brand: core.BrandFeishu,
+	})
+
+	err := authStoreTokenRun(&StoreTokenOptions{
+		Factory:          f,
+		UserOpenID:       "ou_test",
+		UserName:         "Test User",
+		AccessToken:      "uat_xxx",
+		RefreshToken:     "rt_xxx",
+		ExpiresIn:        0,
+		RefreshExpiresIn: 604800,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--expires-in must be greater than 0") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestDomainFlagCompletion(t *testing.T) {
 	allDomains := registry.ListFromMetaProjects()
 

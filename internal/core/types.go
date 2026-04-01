@@ -21,7 +21,29 @@ type Endpoints struct {
 }
 
 // ResolveEndpoints resolves endpoint URLs based on brand.
+// If brand is a URL (starts with http:// or https://), use it as custom domain.
 func ResolveEndpoints(brand LarkBrand) Endpoints {
+	// Check if brand is a custom URL
+	if len(brand) > 8 && (brand[:7] == "http://" || brand[:8] == "https://") {
+		// Custom domain: extract base URL and derive other endpoints
+		baseURL := string(brand)
+		// Remove trailing slash if present
+		if baseURL[len(baseURL)-1] == '/' {
+			baseURL = baseURL[:len(baseURL)-1]
+		}
+		
+		// For custom deployments, typically:
+		// - Open API: <domain>/open-apis
+		// - Accounts: <domain>/accounts (or same domain)
+		// - MCP: <domain>/mcp
+		return Endpoints{
+			Open:     baseURL,
+			Accounts: baseURL,  // Often same as Open for private deployments
+			MCP:      baseURL,  // Often same as Open for private deployments
+		}
+	}
+	
+	// Standard brands
 	switch brand {
 	case BrandLark:
 		return Endpoints{
