@@ -34,7 +34,6 @@ type LoginOptions struct {
 	DeviceCode  string
 	RedirectURI string
 	Timeout     int
-	DirectCode  bool
 }
 
 // NewCmdAuthLogin creates the auth login subcommand.
@@ -63,7 +62,6 @@ browser. Run it in the background and retrieve the verification URL from its out
 	available := sortedKnownDomains()
 	cmd.Flags().StringSliceVar(&opts.Domains, "domain", nil,
 		fmt.Sprintf("domain (repeatable or comma-separated, e.g. --domain calendar,task)\navailable: %s, all", strings.Join(available, ", ")))
-	cmd.Flags().BoolVar(&opts.DirectCode, "direct-code", false, "skip domain/permission selection and go directly to authorization code flow")
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "structured JSON output")
 	cmd.Flags().BoolVar(&opts.NoWait, "no-wait", false, "initiate device authorization and return immediately; use --device-code to complete")
 	cmd.Flags().StringVar(&opts.DeviceCode, "device-code", "", "poll and complete authorization with a device code from a previous --no-wait call")
@@ -165,39 +163,25 @@ func authLoginRun(opts *LoginOptions) error {
 		}
 	}
 
-	hasAnyOption := opts.Scope != "" || opts.Recommend || len(selectedDomains) > 0 || opts.DirectCode
+	hasAnyOption := opts.Scope != "" || opts.Recommend || len(selectedDomains) > 0
 
 	if !hasAnyOption {
+		// When no options are specified, provide a hint to the user instead of automatically starting auth flow
+		// This prevents the process from being killed when trying to start a local server unnecessarily
 		if !opts.JSON && f.IOStreams.IsTerminal {
-			result, err := runInteractiveLogin(f.IOStreams, lang, msg)
-			if err != nil {
-				return err
-			}
-			if result == nil {
-				return output.ErrValidation("no login options selected")
-			}
-			selectedDomains = result.Domains
-			scopeLevel = result.ScopeLevel
+			// Show a message with common usage examples instead of launching interactive or auth flow
+			fmt.Fprintf(f.IOStreams.ErrOut, "To login, specify scopes, domains, or use recommended permissions:\n")
+			fmt.Fprintf(f.IOStreams.ErrOut, "  lark-cli auth login --scope \"your-scopes\"\n")
+			fmt.Fprintf(f.IOStreams.ErrOut, "  lark-cli auth login --domain base,calendar\n")
+			fmt.Fprintf(f.IOStreams.ErrOut, "  lark-cli auth login --recommend\n")
+			fmt.Fprintf(f.IOStreams.ErrOut, "Or use the simplified flow directly:\n")
+			fmt.Fprintf(f.IOStreams.ErrOut, "  lark-cli auth login-code\n")
+			return output.ErrValidation("no login options specified")
 		} else {
-			log(msg.HintHeader)
-			log("Common options:")
-			log(msg.HintCommon1)
-			log(msg.HintCommon2)
-			log(msg.HintCommon3)
-			log(msg.HintCommon4)
-			log("")
-			log("View all options:")
-			log(msg.HintFooter)
-			log("")
-			log("Note: this command blocks until authorization is complete. Run it in the background and retrieve the verification URL from its output.")
-			return output.ErrValidation("please specify the scopes to authorize")
+			// In non-terminal environments, provide minimal guidance
+			fmt.Fprintf(f.IOStreams.Out, "{\"event\":\"error\",\"message\":\"no login options specified\"}\n")
+			return output.ErrValidation("no login options specified")
 		}
-	}
-
-	// If --direct-code is specified, skip domain and permission selection
-	if opts.DirectCode {
-		// Go directly to the authorization code flow without domain/permission selection
-		return authLoginWithAuthCodeFlow(opts, config, opts.Scope)
 	}
 
 	finalScope := opts.Scope
