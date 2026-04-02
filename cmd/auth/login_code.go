@@ -23,7 +23,6 @@ type LoginCodeOptions struct {
 	RedirectURI string
 	Scope       string
 	Timeout     int
-	NoOpen      bool
 }
 
 // NewCmdAuthLoginCode creates the auth login-code subcommand.
@@ -46,7 +45,6 @@ func NewCmdAuthLoginCode(f *cmdutil.Factory, runF func(*LoginCodeOptions) error)
 	cmd.Flags().StringVar(&opts.RedirectURI, "redirect-uri", "http://localhost:3000/callback", "OAuth callback URI")
 	cmd.Flags().StringVar(&opts.Scope, "scope", "", "OAuth scope (empty by default)")
 	cmd.Flags().IntVar(&opts.Timeout, "timeout", 300, "timeout in seconds")
-	cmd.Flags().BoolVar(&opts.NoOpen, "no-open", false, "do not auto-open browser")
 
 	return cmd
 }
@@ -74,7 +72,6 @@ func authLoginCodeRun(opts *LoginCodeOptions) error {
 		RedirectURI: opts.RedirectURI,
 		Scope:       opts.Scope,
 		Timeout:     time.Duration(opts.Timeout) * time.Second,
-		AutoOpen:    !opts.NoOpen,
 	}
 
 	result, err := larkauth.StartAuthCodeFlow(opts.Ctx, flowOpts, httpClient, f.IOStreams.ErrOut)

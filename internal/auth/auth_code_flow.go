@@ -10,8 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -24,7 +22,6 @@ type AuthCodeFlowOptions struct {
 	RedirectURI string
 	Scope       string        // OAuth scope (empty by default)
 	Timeout     time.Duration
-	AutoOpen    bool
 }
 
 // AuthCodeFlowResult contains the result of authorization code flow.
@@ -36,7 +33,6 @@ type AuthCodeFlowResult struct {
 	Scope            string
 	OpenID           string
 	UserName         string
-	AuthPageOpened   bool
 }
 
 // callbackData stores the OAuth callback parameters.
@@ -104,17 +100,6 @@ func StartAuthCodeFlow(ctx context.Context, opts *AuthCodeFlowOptions, httpClien
 
 	fmt.Fprintf(errOut, "Authorization URL: %s\n", authURL)
 
-	// Auto open browser
-	authPageOpened := false
-	if opts.AutoOpen {
-		if err := openBrowser(authURL); err == nil {
-			authPageOpened = true
-			fmt.Fprintf(errOut, "Browser opened automatically\n")
-		} else {
-			fmt.Fprintf(errOut, "[WARN] Failed to open browser: %v\n", err)
-		}
-	}
-
 	// Wait for callback
 	fmt.Fprintf(errOut, "Waiting for authorization callback...\n")
 	var callback *callbackData
@@ -157,7 +142,6 @@ func StartAuthCodeFlow(ctx context.Context, opts *AuthCodeFlowOptions, httpClien
 		Scope:            tokenResp.Scope,
 		OpenID:           userInfo.OpenID,
 		UserName:         userInfo.Name,
-		AuthPageOpened:   authPageOpened,
 	}, nil
 }
 
@@ -188,28 +172,6 @@ func createCallbackHandler(path string, callbackChan chan<- *callbackData) http.
 			fmt.Fprint(w, `<!doctype html><html><head><meta charset="utf-8"><title>授权失败</title></head><body><h1>授权失败</h1><p>请返回终端查看错误信息。</p></body></html>`)
 		}
 	})
-}
-
-// openBrowser opens the default browser with the given URL.
-func openBrowser(url string) error {
-	var cmd string
-	var args []string
-
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = "open"
-		args = []string{url}
-	case "linux":
-		cmd = "xdg-open"
-		args = []string{url}
-	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", url}
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-
-	return exec.Command(cmd, args...).Start()
 }
 
 // tokenResponse represents the OAuth token response.
