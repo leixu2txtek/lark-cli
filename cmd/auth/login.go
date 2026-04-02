@@ -34,6 +34,7 @@ type LoginOptions struct {
 	DeviceCode  string
 	RedirectURI string
 	Timeout     int
+	DirectCode  bool
 }
 
 // NewCmdAuthLogin creates the auth login subcommand.
@@ -62,6 +63,7 @@ browser. Run it in the background and retrieve the verification URL from its out
 	available := sortedKnownDomains()
 	cmd.Flags().StringSliceVar(&opts.Domains, "domain", nil,
 		fmt.Sprintf("domain (repeatable or comma-separated, e.g. --domain calendar,task)\navailable: %s, all", strings.Join(available, ", ")))
+	cmd.Flags().BoolVar(&opts.DirectCode, "direct-code", false, "skip domain/permission selection and go directly to authorization code flow")
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "structured JSON output")
 	cmd.Flags().BoolVar(&opts.NoWait, "no-wait", false, "initiate device authorization and return immediately; use --device-code to complete")
 	cmd.Flags().StringVar(&opts.DeviceCode, "device-code", "", "poll and complete authorization with a device code from a previous --no-wait call")
@@ -163,7 +165,7 @@ func authLoginRun(opts *LoginOptions) error {
 		}
 	}
 
-	hasAnyOption := opts.Scope != "" || opts.Recommend || len(selectedDomains) > 0
+	hasAnyOption := opts.Scope != "" || opts.Recommend || len(selectedDomains) > 0 || opts.DirectCode
 
 	if !hasAnyOption {
 		if !opts.JSON && f.IOStreams.IsTerminal {
@@ -190,6 +192,12 @@ func authLoginRun(opts *LoginOptions) error {
 			log("Note: this command blocks until authorization is complete. Run it in the background and retrieve the verification URL from its output.")
 			return output.ErrValidation("please specify the scopes to authorize")
 		}
+	}
+
+	// If --direct-code is specified, skip domain and permission selection
+	if opts.DirectCode {
+		// Go directly to the authorization code flow without domain/permission selection
+		return authLoginWithAuthCodeFlow(opts, config, opts.Scope)
 	}
 
 	finalScope := opts.Scope
