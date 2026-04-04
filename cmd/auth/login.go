@@ -34,6 +34,7 @@ type LoginOptions struct {
 	DeviceCode  string
 	RedirectURI string
 	Timeout     int
+	OIDC        bool // OIDC authentication flag
 }
 
 // NewCmdAuthLogin creates the auth login subcommand.
@@ -67,6 +68,7 @@ browser. Run it in the background and retrieve the verification URL from its out
 	cmd.Flags().StringVar(&opts.DeviceCode, "device-code", "", "poll and complete authorization with a device code from a previous --no-wait call")
 	cmd.Flags().StringVar(&opts.RedirectURI, "redirect-uri", "http://localhost:3000/callback", "OAuth callback URI (for auth-code flow)")
 	cmd.Flags().IntVar(&opts.Timeout, "timeout", 300, "timeout in seconds (for auth-code flow)")
+	cmd.Flags().BoolVar(&opts.OIDC, "oidc", false, "use OIDC (OpenID Connect) authentication instead of OAuth2")
 
 	_ = cmd.RegisterFlagCompletionFunc("domain", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeDomain(toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -216,6 +218,11 @@ func authLoginRun(opts *LoginOptions) error {
 	// --no-wait now triggers device flow (for backwards compatibility)
 	if opts.NoWait {
 		return authLoginWithDeviceFlow(opts, config, finalScope, msg, log)
+	}
+
+	// Use OIDC flow if --oidc flag is set
+	if opts.OIDC {
+		return authLoginWithOIDCFlow(opts, config, finalScope)
 	}
 
 	// Use Authorization Code Flow by default
@@ -445,6 +452,84 @@ func authLoginWithAuthCodeFlow(opts *LoginOptions, config *core.CliConfig, scope
 		fmt.Fprintln(f.IOStreams.Out, string(b))
 	} else {
 		output.PrintSuccess(f.IOStreams.ErrOut, fmt.Sprintf("Login successful: %s (%s)", result.UserName, result.OpenID))
+	}
+	return nil
+}
+
+// authLoginWithOIDCFlow performs authentication using the OIDC flow
+func authLoginWithOIDCFlow(opts *LoginOptions, config *core.CliConfig, scope string) error {
+	f := opts.Factory
+
+	httpClient, err := f.HttpClient()
+	if err != nil {
+		return err
+	}
+
+	endpoints := core.ResolveEndpoints(config.Brand)
+
+	flowOpts := &larkauth.OIDCFlowOptions{
+		AppID:       config.AppID,
+		AppSecret:   config.AppSecret,
+		Domain:      endpoints.Accounts,
+		OpenDomain:  endpoints.Open,
+		RedirectURI: opts.RedirectURI,
+		Timeout:     time.Duration(opts.Timeout) * time.Second,
+		Scope:       scope, // 传递 scope 参数以请求 API 权限
+	}
+
+	result, err := larkauth.StartOIDCFlow(opts.Ctx, flowOpts, httpClient, f.IOStreams.ErrOut)
+	if err != nil {
+		return output.ErrAuth("OIDC authentication failed: %v", err)
+	}
+
+	// Store token using the UpdateFromOIDCResult helper
+	storedToken := &larkauth.StoredUAToken{
+		AppId:      config.AppID,
+		UserOpenId: result.OpenID,
+	}
+	storedToken.UpdateFromOIDCResult(result)
+
+	if err := larkauth.SetStoredToken(storedToken); err != nil {
+		return output.Errorf(output.ExitInternal, "internal", "failed to save token: %v", err)
+	}
+
+	// Update config
+	multi, _ := core.LoadMultiAppConfig()
+	if multi != nil && len(multi.Apps) > 0 {
+		app := &multi.Apps[0]
+		for _, oldUser := range app.Users {
+			if oldUser.UserOpenId != result.OpenID {
+				larkauth.RemoveStoredToken(config.AppID, oldUser.UserOpenId)
+			}
+		}
+		app.Users = []core.AppUser{{UserOpenId: result.OpenID, UserName: result.UserName}}
+		if err := core.SaveMultiAppConfig(multi); err != nil {
+			return output.Errorf(output.ExitInternal, "internal", "failed to save config: %v", err)
+		}
+	}
+
+	if opts.JSON {
+		b, _ := json.Marshal(map[string]interface{}{
+			"event":         "oidc_authorization_complete",
+			"user_open_id":  result.OpenID,
+			"user_name":     result.UserName,
+			"email":         result.Email,
+			"scope":         result.Scope,
+			"access_token":  result.AccessToken,
+			"refresh_token": result.RefreshToken,
+			"id_token":      result.IDToken,
+			"expires_in":    result.ExpiresIn,
+		})
+		fmt.Fprintln(f.IOStreams.Out, string(b))
+	} else {
+		output.PrintSuccess(f.IOStreams.ErrOut, fmt.Sprintf("OIDC login successful: %s (%s)", result.UserName, result.OpenID))
+		fmt.Fprintf(f.IOStreams.ErrOut, "\n--- Token Information (for debugging) ---\n")
+		fmt.Fprintf(f.IOStreams.ErrOut, "Access Token:  %s\n", result.AccessToken)
+		fmt.Fprintf(f.IOStreams.ErrOut, "Refresh Token: %s\n", result.RefreshToken)
+		fmt.Fprintf(f.IOStreams.ErrOut, "ID Token:      %s\n", result.IDToken)
+		fmt.Fprintf(f.IOStreams.ErrOut, "Expires In:    %d seconds\n", result.ExpiresIn)
+		fmt.Fprintf(f.IOStreams.ErrOut, "Scope:         %s\n", result.Scope)
+		fmt.Fprintf(f.IOStreams.ErrOut, "--- End Token Information ---\n")
 	}
 	return nil
 }

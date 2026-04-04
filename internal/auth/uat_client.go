@@ -180,39 +180,52 @@ func doRefreshToken(httpClient *http.Client, opts UATCallOptions, stored *Stored
 		return nil, nil
 	}
 
-	endpoints := ResolveOAuthEndpoints(opts.Domain)
+	// 检查是否是 OIDC token（有 ID Token 字段）
+	isOIDC := stored.IDToken != ""
 
-	callEndpoint := func() (map[string]interface{}, error) {
-		form := url.Values{}
-		form.Set("grant_type", "refresh_token")
-		form.Set("refresh_token", stored.RefreshToken)
-		form.Set("client_id", opts.AppId)
-		form.Set("client_secret", opts.AppSecret)
+	var refreshFunc func() (map[string]interface{}, error)
 
-		req, err := http.NewRequest("POST", endpoints.Token, strings.NewReader(form.Encode()))
-		if err != nil {
-			return nil, err
+	if isOIDC {
+		// 使用 OIDC Refresh API
+		refreshFunc = func() (map[string]interface{}, error) {
+			return refreshOIDCToken(httpClient, opts, stored)
 		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		// 使用传统 OAuth2 端点
+		endpoints := ResolveOAuthEndpoints(opts.Domain)
+		refreshFunc = func() (map[string]interface{}, error) {
+			form := url.Values{}
+			form.Set("grant_type", "refresh_token")
+			form.Set("refresh_token", stored.RefreshToken)
+			form.Set("client_id", opts.AppId)
+			form.Set("client_secret", opts.AppSecret)
 
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
+			req, err := http.NewRequest("POST", endpoints.Token, strings.NewReader(form.Encode()))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("token refresh read error: %v", err)
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, fmt.Errorf("token refresh read error: %v", err)
+			}
+			var data map[string]interface{}
+			if err := json.Unmarshal(body, &data); err != nil {
+				return nil, fmt.Errorf("token refresh parse error: %v", err)
+			}
+			return data, nil
 		}
-		var data map[string]interface{}
-		if err := json.Unmarshal(body, &data); err != nil {
-			return nil, fmt.Errorf("token refresh parse error: %v", err)
-		}
-		return data, nil
 	}
 
-	data, err := callEndpoint()
+	// 执行刷新
+	data, err := refreshFunc()
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +250,7 @@ func doRefreshToken(httpClient *http.Client, opts UATCallOptions, stored *Stored
 		// Retryable server error: retry once, then clear token on second failure.
 		if RefreshTokenRetryable[code] {
 			fmt.Fprintf(errOut, "[lark-cli] [WARN] uat-client: refresh transient error (code=%d) for %s, retrying once\n", code, opts.UserOpenId)
-			data, err = callEndpoint()
+			data, err = refreshFunc()
 			if err != nil {
 				fmt.Fprintf(errOut, "[lark-cli] [WARN] uat-client: refresh retry network error for %s, clearing token\n", opts.UserOpenId)
 				if err := RemoveStoredToken(opts.AppId, opts.UserOpenId); err != nil {
@@ -302,4 +315,51 @@ func doRefreshToken(httpClient *http.Client, opts UATCallOptions, stored *Stored
 		return nil, err
 	}
 	return updated, nil
+}
+
+// refreshOIDCToken 使用飞书 OIDC Refresh API 刷新 token
+func refreshOIDCToken(httpClient *http.Client, opts UATCallOptions, stored *StoredUAToken) (map[string]interface{}, error) {
+	errOut := opts.ErrOut
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+
+	// 创建 OIDC API 客户端
+	client := NewOidcAccessTokenClient(httpClient, string(opts.Domain))
+	client.SetAppCredentials(opts.AppId, opts.AppSecret)
+
+	// 调用 OIDC Refresh API
+	resp, err := client.RefreshAccessToken(context.Background(), RefreshAccessTokenParams{
+		AppID:        opts.AppId,
+		AppSecret:    opts.AppSecret,
+		RefreshToken: stored.RefreshToken,
+	})
+	if err != nil {
+		fmt.Fprintf(errOut, "[lark-cli] uat-client: OIDC refresh failed for %s: %v\n", opts.UserOpenId, err)
+		return nil, err
+	}
+
+	// 转换为 map 格式以兼容后续处理
+	data := map[string]interface{}{
+		"code":               0,
+		"msg":                "success",
+		"access_token":       resp.AccessToken,
+		"refresh_token":      resp.RefreshToken,
+		"token_type":         resp.TokenType,
+		"expires_in":         float64(resp.ExpiresIn),
+		"refresh_expires_in": float64(resp.RefreshExpiresIn),
+	}
+
+	// 如果有用户信息，也加入 data 中
+	if resp.OpenID != "" {
+		data["open_id"] = resp.OpenID
+	}
+	if resp.Name != "" {
+		data["name"] = resp.Name
+	}
+	if resp.Email != "" {
+		data["email"] = resp.Email
+	}
+
+	return data, nil
 }

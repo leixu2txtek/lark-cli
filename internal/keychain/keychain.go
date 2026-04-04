@@ -37,3 +37,9 @@ func Set(service, account, data string) error {
 func Remove(service, account string) error {
 	return platformRemove(service, account)
 }
+
+// ListKeys lists all keys in the keychain for a given service.
+// This is primarily used for token management and cleanup.
+func ListKeys(service string) ([]string, error) {
+	return platformListKeys(service)
+}

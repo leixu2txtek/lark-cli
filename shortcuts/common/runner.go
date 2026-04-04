@@ -451,10 +451,15 @@ func (ctx *RuntimeContext) OutFormat(data interface{}, meta *output.Meta, pretty
 // checkScopePrereqs performs a fast local check: does the stored token
 // contain all scopes declared by the shortcut?  Returns the missing ones.
 // If no token is stored, returns nil (let the normal auth flow handle it).
+// If stored.Scope is empty (e.g., OIDC mode), returns nil to let the API call decide.
 func checkScopePrereqs(appID, userOpenId string, required []string) []string {
 	stored := auth.GetStoredToken(appID, userOpenId)
 	if stored == nil {
 		return nil // no token yet — auth flow will catch this later
+	}
+	// 如果 stored.Scope 为空（例如 OIDC 模式），跳过预检，让 API 实际调用来决定权限
+	if stored.Scope == "" {
+		return nil
 	}
 	return auth.MissingScopes(stored.Scope, required)
 }

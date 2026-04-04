@@ -154,6 +154,7 @@ lark-cli auth status
 | Command       | Description                                                    |
 | ------------- | -------------------------------------------------------------- |
 | `auth login`  | OAuth login with interactive selection or CLI flags for scopes |
+| `auth login --oidc` | OIDC (OpenID Connect) login for enhanced user identity verification |
 | `auth logout` | Sign out and remove stored credentials                         |
 | `auth status` | Show current login status and granted scopes                   |
 | `auth check`  | Verify a specific scope (exit 0 = ok, 1 = missing)            |
@@ -178,10 +179,40 @@ lark-cli auth login --domain calendar --no-wait
 # Resume polling later
 lark-cli auth login --device-code <DEVICE_CODE>
 
+# OIDC Authentication (OpenID Connect)
+lark-cli auth login --oidc --scope "openid email profile"
+# Or use the dedicated command
+lark-cli auth login-oidc --app-id <APP_ID> --app-secret <APP_SECRET> --domain <DOMAIN>
+
 # Identity switching: execute commands as user or bot
 lark-cli calendar +agenda --as user
 lark-cli im +messages-send --as bot --chat-id "oc_xxx" --text "Hello"
 ```
+
+### OIDC Authentication
+
+lark-cli supports OpenID Connect (OIDC) for enhanced security and user identity verification:
+
+- **ID Token**: Receives a JWT ID Token containing user claims (email, name, sub)
+- **Better Identity Verification**: Validates user identity through OIDC standard claims
+- **Automatic Token Refresh**: Background service checks and refreshes tokens every 5 minutes
+
+```bash
+# Login with OIDC
+lark-cli auth login --oidc --scope "openid email profile"
+
+# Check token status with ID Token information
+lark-cli auth status --verify
+```
+
+### Automatic Token Refresh
+
+lark-cli automatically refreshes expiring tokens in the background:
+
+- Tokens are checked every 5 minutes
+- Tokens expiring within 5 minutes are automatically refreshed
+- Refresh service starts on program initialization and stops on exit
+- Logs refresh operations to stderr for debugging
 
 ## Three-Layer Command System
 

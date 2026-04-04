@@ -91,6 +91,22 @@ func authStatusRun(opts *StatusOptions) error {
 	result["refreshExpiresAt"] = time.UnixMilli(stored.RefreshExpiresAt).Format(time.RFC3339)
 	result["grantedAt"] = time.UnixMilli(stored.GrantedAt).Format(time.RFC3339)
 
+	// Add ID Token information if available (OIDC)
+	if stored.IDToken != "" {
+		result["idTokenStatus"] = func() string {
+			if stored.IDTokenExpiresAt > 0 {
+				if time.Now().UnixMilli() >= stored.IDTokenExpiresAt {
+					return "expired"
+				}
+				return "valid"
+			}
+			return "unknown"
+		}()
+		if stored.IDTokenExpiresAt > 0 {
+			result["idTokenExpiresAt"] = time.UnixMilli(stored.IDTokenExpiresAt).Format(time.RFC3339)
+		}
+	}
+
 	// --verify: call the server to confirm token is actually usable.
 	if opts.Verify && status != "expired" {
 		verified, verifyErr := verifyTokenOnServer(f, config)

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,14 @@ var safeFileNameRe = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
 func safeFileName(account string) string {
 	return safeFileNameRe.ReplaceAllString(account, "_") + ".enc"
+}
+
+func unsafeFileName(safeName string) string {
+	// Remove the .enc extension
+	unsafeName := strings.TrimSuffix(safeName, ".enc")
+	// Replace underscores back to the original characters (we don't have reverse mapping)
+	// For simplicity in our case, we'll just remove underscores which were added by safeFileNameRe
+	return strings.ReplaceAll(unsafeName, "_", "")
 }
 
 func getMasterKey(service string) ([]byte, error) {
@@ -176,4 +185,25 @@ func platformRemove(service, account string) error {
 		return err
 	}
 	return nil
+}
+
+// platformListKeys lists all keys in the keychain for a given service.
+// This is used for enumerating stored tokens.
+func platformListKeys(service string) ([]string, error) {
+	dir := StorageDir(service)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var keys []string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".enc") {
+			// Get the original account name by removing the .enc suffix
+			accountName := strings.TrimSuffix(entry.Name(), ".enc")
+			keys = append(keys, accountName)
+		}
+	}
+
+	return keys, nil
 }

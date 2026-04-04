@@ -39,6 +39,19 @@ func valueNameForAccount(account string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(account))
 }
 
+func accountFromValueName(valueName string) (string, error) {
+	// Decode the base64-encoded account name
+	accountBytes, err := base64.RawURLEncoding.DecodeString(valueName)
+	if err != nil {
+		// If decoding fails, try standard base64 encoding
+		accountBytes, err = base64.StdEncoding.DecodeString(valueName)
+		if err != nil {
+			return "", err
+		}
+	}
+	return string(accountBytes), nil
+}
+
 func dpapiEntropy(service, account string) *windows.DataBlob {
 	// Bind ciphertext to (service, account) to reduce swap/replay risks.
 	// Note: empty entropy is allowed, but we intentionally use deterministic entropy.
@@ -167,4 +180,37 @@ func registryRemove(service, account string) error {
 	defer k.Close()
 	_ = k.DeleteValue(valueNameForAccount(account))
 	return nil
+}
+
+// platformListKeys lists all keys in the keychain for a given service.
+// This is used for enumerating stored tokens.
+func platformListKeys(service string) ([]string, error) {
+	keyPath := registryPathForService(service)
+	k, err := registry.OpenKey(registry.CURRENT_USER, keyPath, registry.ENUMERATE_SUB_KEYS|registry.QUERY_VALUE)
+	if err != nil {
+		return nil, err
+	}
+	defer k.Close()
+
+	// First get all value names
+	var valueNames []string
+	for i := uint32(0); ; i++ {
+		name, _, err := k.ReadValueName(i)
+		if err != nil {
+			break
+		}
+		valueNames = append(valueNames, name)
+	}
+
+	// Decode account names from base64-encoded value names
+	var accounts []string
+	for _, valueName := range valueNames {
+		account, err := accountFromValueName(valueName)
+		if err != nil {
+			continue // Skip invalid entries
+		}
+		accounts = append(accounts, account)
+	}
+
+	return accounts, nil
 }

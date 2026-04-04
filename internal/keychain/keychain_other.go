@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -173,4 +174,25 @@ func platformRemove(service, account string) error {
 		return err
 	}
 	return nil
+}
+
+// platformListKeys lists all keys in the keychain for a given service.
+// This is used for enumerating stored tokens.
+func platformListKeys(service string) ([]string, error) {
+	dir := StorageDir(service)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var keys []string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".enc") && entry.Name() != "master.key" {
+			// Get the original account name by removing the .enc suffix
+			accountName := strings.TrimSuffix(entry.Name(), ".enc")
+			keys = append(keys, accountName)
+		}
+	}
+
+	return keys, nil
 }

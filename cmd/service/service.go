@@ -248,6 +248,10 @@ func checkServiceScopes(config *core.CliConfig, method map[string]interface{}, s
 		// Strict: ALL requiredScopes must be present
 		stored := auth.GetStoredToken(config.AppID, config.UserOpenId)
 		if stored != nil {
+			// 如果 stored.Scope 为空（例如 OIDC 模式），跳过预检，让 API 实际调用来决定权限
+			if stored.Scope == "" {
+				return nil
+			}
 			required := make([]string, 0, len(requiredScopes))
 			for _, s := range requiredScopes {
 				if str, ok := s.(string); ok {
@@ -270,6 +274,10 @@ func checkServiceScopes(config *core.CliConfig, method map[string]interface{}, s
 	// Default: ANY one of the declared scopes is sufficient
 	stored := auth.GetStoredToken(config.AppID, config.UserOpenId)
 	if stored == nil {
+		return nil
+	}
+	// 如果 stored.Scope 为空（例如 OIDC 模式），跳过预检，让 API 实际调用来决定权限
+	if stored.Scope == "" {
 		return nil
 	}
 	grantedScopes := make(map[string]bool)

@@ -155,6 +155,7 @@ lark-cli auth status
 | 命令          | 说明                                             |
 | --------------- | -------------------------------------------------- |
 | `auth login`  | OAuth 登录，支持交互式选择或命令行参数指定 scope |
+| `auth login --oidc` | OIDC（OpenID Connect）登录，增强的用户身份验证 |
 | `auth logout` | 登出并删除已存储的凭证                           |
 | `auth status` | 查看当前登录状态和已授权的 scope                 |
 | `auth check`  | 校验指定 scope（exit 0 = 有权限，1 = 缺失）      |
@@ -179,10 +180,40 @@ lark-cli auth login --domain calendar --no-wait
 # 稍后恢复轮询
 lark-cli auth login --device-code <DEVICE_CODE>
 
+# OIDC 认证（OpenID Connect）
+lark-cli auth login --oidc --scope "openid email profile"
+# 或使用专用命令
+lark-cli auth login-oidc --app-id <APP_ID> --app-secret <APP_SECRET> --domain <DOMAIN>
+
 # 身份切换：以用户或机器人身份执行命令
 lark-cli calendar +agenda --as user
 lark-cli im +messages-send --as bot --chat-id "oc_xxx" --text "Hello"
 ```
+
+### OIDC 认证
+
+lark-cli 支持 OpenID Connect (OIDC) 以提供更强的安全性和用户身份验证：
+
+- **ID Token**: 接收包含用户声明（email、name、sub）的 JWT ID Token
+- **更强的身份验证**: 通过 OIDC 标准声明验证用户身份
+- **自动 Token 刷新**: 后台服务每 5 分钟检查并刷新 token
+
+```bash
+# 使用 OIDC 登录
+lark-cli auth login --oidc --scope "openid email profile"
+
+# 查看包含 ID Token 信息的令牌状态
+lark-cli auth status --verify
+```
+
+### 自动 Token 刷新
+
+lark-cli 自动刷新即将过期的 token：
+
+- 每 5 分钟检查一次 token 状态
+- 5 分钟内即将过期的 token 会自动刷新
+- 刷新服务在程序启动时自动启动，退出时停止
+- 刷新操作日志输出到 stderr 便于调试
 
 ## 三层命令调用
 

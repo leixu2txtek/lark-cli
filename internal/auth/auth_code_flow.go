@@ -20,7 +20,7 @@ type AuthCodeFlowOptions struct {
 	AppSecret   string
 	Domain      string
 	RedirectURI string
-	Scope       string        // OAuth scope (empty by default)
+	Scope       string // OAuth scope (empty by default)
 	Timeout     time.Duration
 }
 

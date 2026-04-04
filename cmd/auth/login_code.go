@@ -113,4 +113,3 @@ func authLoginCodeRun(opts *LoginCodeOptions) error {
 	output.PrintSuccess(f.IOStreams.ErrOut, fmt.Sprintf("Login successful: %s (%s)", result.UserName, result.OpenID))
 	return nil
 }
-
