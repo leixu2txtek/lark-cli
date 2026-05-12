@@ -284,14 +284,18 @@ func doRefreshToken(httpClient *http.Client, opts UATCallOptions, stored *Stored
 	}
 
 	refreshToken := getStr(data, "refresh_token")
+	refreshTokenReturned := refreshToken != ""
 	if refreshToken == "" {
 		refreshToken = stored.RefreshToken
 	}
 
 	expiresIn := getInt(data, "expires_in", 7200)
 	refreshExpiresIn := getInt(data, "refresh_token_expires_in", 0)
+	if refreshExpiresIn == 0 {
+		refreshExpiresIn = getInt(data, "refresh_expires_in", 0)
+	}
 	refreshExpiresAt := stored.RefreshExpiresAt
-	if refreshExpiresIn > 0 {
+	if refreshTokenReturned && refreshExpiresIn > 0 {
 		refreshExpiresAt = now + int64(refreshExpiresIn)*1000
 	}
 
@@ -300,15 +304,54 @@ func doRefreshToken(httpClient *http.Client, opts UATCallOptions, stored *Stored
 		scope = stored.Scope
 	}
 
+	var userInfo map[string]interface{}
+	if stored.UserInfo != nil {
+		userInfo = stored.GetUserInfo()
+	}
+
 	updated := &StoredUAToken{
 		UserOpenId:       stored.UserOpenId,
 		AppId:            opts.AppId,
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
+		IDToken:          stored.IDToken,
 		ExpiresAt:        now + int64(expiresIn)*1000,
 		RefreshExpiresAt: refreshExpiresAt,
+		IDTokenExpiresAt: stored.IDTokenExpiresAt,
 		Scope:            scope,
 		GrantedAt:        stored.GrantedAt,
+		UserInfo:         userInfo,
+	}
+	if isOIDC {
+		if openID := getStr(data, "open_id"); openID != "" {
+			updated.UserOpenId = openID
+		}
+		if idToken := getStr(data, "id_token"); idToken != "" {
+			updated.IDToken = idToken
+			if claims, err := GetClaims(idToken); err == nil {
+				if exp, ok := claims["exp"].(float64); ok {
+					updated.IDTokenExpiresAt = int64(exp) * 1000
+				}
+			}
+		}
+		if name := getStr(data, "name"); name != "" {
+			if updated.UserInfo == nil {
+				updated.UserInfo = map[string]interface{}{}
+			}
+			updated.UserInfo["name"] = name
+		}
+		if email := getStr(data, "email"); email != "" {
+			if updated.UserInfo == nil {
+				updated.UserInfo = map[string]interface{}{}
+			}
+			updated.UserInfo["email"] = email
+		}
+		if updated.UserOpenId != "" {
+			if updated.UserInfo == nil {
+				updated.UserInfo = map[string]interface{}{}
+			}
+			updated.UserInfo["sub"] = updated.UserOpenId
+		}
 	}
 
 	if err := SetStoredToken(updated); err != nil {
@@ -325,7 +368,8 @@ func refreshOIDCToken(httpClient *http.Client, opts UATCallOptions, stored *Stor
 	}
 
 	// 创建 OIDC API 客户端
-	client := NewOidcAccessTokenClient(httpClient, string(opts.Domain))
+	openDomain := core.ResolveEndpoints(opts.Domain).Open
+	client := NewOidcAccessTokenClient(httpClient, openDomain)
 	client.SetAppCredentials(opts.AppId, opts.AppSecret)
 
 	// 调用 OIDC Refresh API
@@ -341,13 +385,15 @@ func refreshOIDCToken(httpClient *http.Client, opts UATCallOptions, stored *Stor
 
 	// 转换为 map 格式以兼容后续处理
 	data := map[string]interface{}{
-		"code":               0,
-		"msg":                "success",
-		"access_token":       resp.AccessToken,
-		"refresh_token":      resp.RefreshToken,
-		"token_type":         resp.TokenType,
-		"expires_in":         float64(resp.ExpiresIn),
-		"refresh_expires_in": float64(resp.RefreshExpiresIn),
+		"code":                     0,
+		"msg":                      "success",
+		"access_token":             resp.AccessToken,
+		"refresh_token":            resp.RefreshToken,
+		"id_token":                 resp.IDToken,
+		"token_type":               resp.TokenType,
+		"expires_in":               float64(resp.ExpiresIn),
+		"refresh_expires_in":       float64(resp.RefreshExpiresIn),
+		"refresh_token_expires_in": float64(resp.RefreshExpiresIn),
 	}
 
 	// 如果有用户信息，也加入 data 中

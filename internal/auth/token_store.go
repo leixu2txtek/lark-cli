@@ -75,7 +75,10 @@ func TokenStatus(token *StoredUAToken) string {
 
 	// 首先检查 ID Token 状态（如果是 OIDC 令牌）
 	if token.IDToken != "" && token.IDTokenExpiresAt > 0 {
-		if now >= token.IDTokenExpiresAt {
+		if now+refreshAheadMs >= token.IDTokenExpiresAt {
+			if token.RefreshToken != "" && token.RefreshExpiresAt > now {
+				return "needs_refresh"
+			}
 			return "id_token_expired"
 		}
 	}
