@@ -270,12 +270,26 @@ func TestTokenStatus_VariousStates(t *testing.T) {
 			expectedStatus: "expired",
 		},
 		{
-			name: "id_token expired",
+			name: "id_token expired with refresh token",
 			token: &StoredUAToken{
 				AccessToken:      "valid_token",
 				ExpiresAt:        now + 10*time.Minute.Milliseconds(),
 				IDToken:          testExpiredIDToken,
 				IDTokenExpiresAt: 1000000000000, // 已过期
+				RefreshToken:     "refresh",
+				RefreshExpiresAt: now + 30*24*time.Hour.Milliseconds(),
+			},
+			expectedStatus: "valid",
+		},
+		{
+			name: "id_token expired without refresh token",
+			token: &StoredUAToken{
+				AccessToken:      "valid_token",
+				ExpiresAt:        now + 10*time.Minute.Milliseconds(),
+				IDToken:          testExpiredIDToken,
+				IDTokenExpiresAt: 1000000000000, // 已过期
+				RefreshToken:     "refresh",
+				RefreshExpiresAt: now - time.Hour.Milliseconds(),
 			},
 			expectedStatus: "valid",
 		},

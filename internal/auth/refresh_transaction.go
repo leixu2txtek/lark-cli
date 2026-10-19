@@ -130,6 +130,11 @@ func refreshCredential(ctx context.Context, httpClient *http.Client, opts UATCal
 	}
 	if response.IDToken != "" {
 		next.IDToken = response.IDToken
+		if claims, err := GetClaims(response.IDToken); err == nil {
+			if exp, ok := claims["exp"].(float64); ok {
+				next.IDTokenExpiresAt = int64(exp) * 1000
+			}
+		}
 	}
 	if response.RefreshExpiresIn > 0 {
 		next.RefreshExpiresAt = now + int64(response.RefreshExpiresIn)*1000
