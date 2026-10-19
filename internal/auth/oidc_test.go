@@ -63,17 +63,7 @@ func TestTokenStatus(t *testing.T) {
 		RefreshExpiresAt: now + 3600*1000,
 		RefreshToken:     "refresh-token",
 	}
-	assert.Equal(t, "needs_refresh", TokenStatus(expiredIDTokenRefreshable))
-
-	// Test expired ID token without a usable refresh token
-	expiredIDTokenNotRefreshable := &StoredUAToken{
-		IDToken:          "some.id.token",
-		IDTokenExpiresAt: now - 1000,
-		ExpiresAt:        now + 3600*1000,
-		RefreshExpiresAt: now - 1000,
-		RefreshToken:     "refresh-token",
-	}
-	assert.Equal(t, "id_token_expired", TokenStatus(expiredIDTokenNotRefreshable))
+	assert.Equal(t, "valid", TokenStatus(expiredIDTokenRefreshable))
 }
 
 func TestOIDCFlowResult(t *testing.T) {

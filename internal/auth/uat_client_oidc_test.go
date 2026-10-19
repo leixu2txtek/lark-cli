@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -25,11 +26,12 @@ func jsonResponse(body string) *http.Response {
 	}
 }
 
-func TestDoRefreshTokenOIDCRefreshUpdatesAndPreservesOIDCFields(t *testing.T) {
+func TestRefreshCredentialOIDCRefreshUpdatesAndPreservesOIDCFields(t *testing.T) {
 	now := time.Now().UnixMilli()
 	stored := &StoredUAToken{
 		UserOpenId:       "ou_oidc_refresh",
 		AppId:            "test_app",
+		AuthProtocol:     "legacy_oidc",
 		AccessToken:      "old_access_token",
 		RefreshToken:     "old_refresh_token",
 		IDToken:          "old.id.token",
@@ -60,15 +62,16 @@ func TestDoRefreshTokenOIDCRefreshUpdatesAndPreservesOIDCFields(t *testing.T) {
 	})}
 
 	var errOut bytes.Buffer
-	refreshed, err := doRefreshToken(client, UATCallOptions{
+	store := NewCredentialStore(&memoryCredentials{values: map[string]string{}}, t.TempDir())
+	refreshed, err := refreshCredential(context.Background(), client, UATCallOptions{
 		UserOpenId: stored.UserOpenId,
 		AppId:      stored.AppId,
 		AppSecret:  "test_secret",
 		Domain:     core.BrandFeishu,
 		ErrOut:     &errOut,
-	}, stored)
+	}, store, stored)
 	if err != nil {
-		t.Fatalf("doRefreshToken failed: %v", err)
+		t.Fatalf("refreshCredential failed: %v", err)
 	}
 
 	if refreshed.AccessToken != "new_access_token" {
@@ -106,14 +109,21 @@ func TestRefreshOIDCTokenResolvesBrandToOpenDomain(t *testing.T) {
 		}
 	})}
 
-	_, err := refreshOIDCToken(client, UATCallOptions{
+	stored := &StoredUAToken{
+		AppId:        "cli_test",
+		UserOpenId:   "ou_test",
+		AuthProtocol: "legacy_oidc",
+		RefreshToken: "refresh",
+	}
+	store := NewCredentialStore(&memoryCredentials{values: map[string]string{}}, t.TempDir())
+	_, err := refreshCredential(context.Background(), client, UATCallOptions{
 		UserOpenId: "ou_test",
 		AppId:      "cli_test",
 		AppSecret:  "secret",
 		Domain:     core.BrandFeishu,
-	}, &StoredUAToken{RefreshToken: "refresh"})
+	}, store, stored)
 	if err != nil {
-		t.Fatalf("refreshOIDCToken failed: %v", err)
+		t.Fatalf("refreshCredential failed: %v", err)
 	}
 	for _, host := range seenHosts {
 		if host != "open.feishu.cn" {
